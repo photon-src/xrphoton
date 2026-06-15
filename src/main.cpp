@@ -119,6 +119,77 @@ void destroyDebugUtilsMessenger(VkInstance instance, VkDebugUtilsMessengerEXT de
         destroyFunction(instance, debugMessenger, nullptr);
     }
 }
+
+struct QueueFamilyIndices
+{
+    uint32_t graphicsFamily = 0;
+    bool hasGraphicsFamily = false;
+
+    bool isComplete() const
+    {
+        return hasGraphicsFamily;
+    }
+};
+
+QueueFamilyIndices findQueueFamilies(VkPhysicalDevice physicalDevice)
+{
+    uint32_t queueFamilyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, nullptr);
+
+    std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies.data());
+
+    QueueFamilyIndices indices{};
+
+    for (uint32_t index = 0; index < queueFamilyCount; ++index) {
+        if ((queueFamilies[index].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0) {
+            indices.graphicsFamily = index;
+            indices.hasGraphicsFamily = true;
+            break;
+        }
+    }
+
+    return indices;
+}
+
+bool isPhysicalDeviceSuitable(VkPhysicalDevice physicalDevice)
+{
+    const QueueFamilyIndices queueFamilies = findQueueFamilies(physicalDevice);
+    return queueFamilies.isComplete();
+}
+
+VkPhysicalDevice pickPhysicalDevice(VkInstance instance)
+{
+    uint32_t physicalDeviceCount = 0;
+    VkResult result = vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, nullptr);
+
+    if (result != VK_SUCCESS) {
+        std::cerr << "Failed to enumerate Vulkan physical devices.\n";
+        return VK_NULL_HANDLE;
+    }
+
+    if (physicalDeviceCount == 0) {
+        std::cerr << "No Vulkan physical devices were found.\n";
+        return VK_NULL_HANDLE;
+    }
+
+    std::vector<VkPhysicalDevice> physicalDevices(physicalDeviceCount);
+    result = vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices.data());
+
+    if (result != VK_SUCCESS) {
+        std::cerr << "Failed to read Vulkan physical devices.\n";
+        return VK_NULL_HANDLE;
+    }
+
+    for (VkPhysicalDevice physicalDevice : physicalDevices) {
+        if (isPhysicalDeviceSuitable(physicalDevice)) {
+            return physicalDevice;
+        }
+    }
+
+    std::cerr << "No suitable Vulkan physical device was found.\n";
+    return VK_NULL_HANDLE;
+}
 }
 
 int main()
@@ -199,6 +270,23 @@ int main()
     }
 
     std::cout << "Created Vulkan debug messenger.\n";
+
+    VkPhysicalDevice physicalDevice = pickPhysicalDevice(instance);
+
+    if (physicalDevice == VK_NULL_HANDLE) {
+        destroyDebugUtilsMessenger(instance, debugMessenger);
+        vkDestroyInstance(instance, nullptr);
+        return 1;
+    }
+
+    VkPhysicalDeviceProperties physicalDeviceProperties{};
+    vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProperties);
+
+    const QueueFamilyIndices queueFamilies = findQueueFamilies(physicalDevice);
+    std::cout << "Selected Vulkan physical device: "
+              << physicalDeviceProperties.deviceName << '\n';
+    std::cout << "Using graphics queue family: "
+              << queueFamilies.graphicsFamily << '\n';
 
     destroyDebugUtilsMessenger(instance, debugMessenger);
     std::cout << "Destroyed Vulkan debug messenger.\n";
