@@ -309,6 +309,19 @@ VkResult createLogicalDevice(
 
     return vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, device);
 }
+
+VkResult createCommandPool(
+    VkDevice device,
+    const QueueFamilyIndices& queueFamilies,
+    VkCommandPool* commandPool)
+{
+    VkCommandPoolCreateInfo commandPoolCreateInfo{};
+    commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    commandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    commandPoolCreateInfo.queueFamilyIndex = queueFamilies.graphicsFamily;
+
+    return vkCreateCommandPool(device, &commandPoolCreateInfo, nullptr, commandPool);
+}
 }
 
 int main()
@@ -422,6 +435,22 @@ int main()
     VkQueue graphicsQueue = VK_NULL_HANDLE;
     vkGetDeviceQueue(device, queueFamilies.graphicsFamily, 0, &graphicsQueue);
     std::cout << "Retrieved Vulkan graphics queue.\n";
+
+    VkCommandPool commandPool = VK_NULL_HANDLE;
+    const VkResult commandPoolResult = createCommandPool(device, queueFamilies, &commandPool);
+
+    if (commandPoolResult != VK_SUCCESS) {
+        std::cerr << "Failed to create Vulkan command pool.\n";
+        vkDestroyDevice(device, nullptr);
+        destroyDebugUtilsMessenger(instance, debugMessenger);
+        vkDestroyInstance(instance, nullptr);
+        return 1;
+    }
+
+    std::cout << "Created Vulkan command pool.\n";
+
+    vkDestroyCommandPool(device, commandPool, nullptr);
+    std::cout << "Destroyed Vulkan command pool.\n";
 
     vkDestroyDevice(device, nullptr);
     std::cout << "Destroyed Vulkan logical device.\n";
