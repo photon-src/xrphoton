@@ -336,6 +336,21 @@ VkResult allocateCommandBuffer(
 
     return vkAllocateCommandBuffers(device, &commandBufferAllocateInfo, commandBuffer);
 }
+
+VkResult recordEmptyCommandBuffer(VkCommandBuffer commandBuffer)
+{
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    VkResult result = vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+    if (result != VK_SUCCESS) {
+        return result;
+    }
+
+    return vkEndCommandBuffer(commandBuffer);
+}
 }
 
 int main()
@@ -476,6 +491,20 @@ int main()
     }
 
     std::cout << "Allocated Vulkan command buffer.\n";
+
+    const VkResult recordCommandBufferResult = recordEmptyCommandBuffer(commandBuffer);
+
+    if (recordCommandBufferResult != VK_SUCCESS) {
+        std::cerr << "Failed to record Vulkan command buffer.\n";
+        vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+        vkDestroyCommandPool(device, commandPool, nullptr);
+        vkDestroyDevice(device, nullptr);
+        destroyDebugUtilsMessenger(instance, debugMessenger);
+        vkDestroyInstance(instance, nullptr);
+        return 1;
+    }
+
+    std::cout << "Recorded empty Vulkan command buffer.\n";
 
     vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
     std::cout << "Freed Vulkan command buffer.\n";
