@@ -322,6 +322,20 @@ VkResult createCommandPool(
 
     return vkCreateCommandPool(device, &commandPoolCreateInfo, nullptr, commandPool);
 }
+
+VkResult allocateCommandBuffer(
+    VkDevice device,
+    VkCommandPool commandPool,
+    VkCommandBuffer* commandBuffer)
+{
+    VkCommandBufferAllocateInfo commandBufferAllocateInfo{};
+    commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    commandBufferAllocateInfo.commandPool = commandPool;
+    commandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    commandBufferAllocateInfo.commandBufferCount = 1;
+
+    return vkAllocateCommandBuffers(device, &commandBufferAllocateInfo, commandBuffer);
+}
 }
 
 int main()
@@ -448,6 +462,23 @@ int main()
     }
 
     std::cout << "Created Vulkan command pool.\n";
+
+    VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+    const VkResult commandBufferResult = allocateCommandBuffer(device, commandPool, &commandBuffer);
+
+    if (commandBufferResult != VK_SUCCESS) {
+        std::cerr << "Failed to allocate Vulkan command buffer.\n";
+        vkDestroyCommandPool(device, commandPool, nullptr);
+        vkDestroyDevice(device, nullptr);
+        destroyDebugUtilsMessenger(instance, debugMessenger);
+        vkDestroyInstance(instance, nullptr);
+        return 1;
+    }
+
+    std::cout << "Allocated Vulkan command buffer.\n";
+
+    vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+    std::cout << "Freed Vulkan command buffer.\n";
 
     vkDestroyCommandPool(device, commandPool, nullptr);
     std::cout << "Destroyed Vulkan command pool.\n";
