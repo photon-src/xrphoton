@@ -351,6 +351,22 @@ VkResult recordEmptyCommandBuffer(VkCommandBuffer commandBuffer)
 
     return vkEndCommandBuffer(commandBuffer);
 }
+
+VkResult submitCommandBufferAndWait(VkQueue queue, VkCommandBuffer commandBuffer)
+{
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    VkResult result = vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+
+    if (result != VK_SUCCESS) {
+        return result;
+    }
+
+    return vkQueueWaitIdle(queue);
+}
 }
 
 int main()
@@ -505,6 +521,20 @@ int main()
     }
 
     std::cout << "Recorded empty Vulkan command buffer.\n";
+
+    const VkResult submitCommandBufferResult = submitCommandBufferAndWait(graphicsQueue, commandBuffer);
+
+    if (submitCommandBufferResult != VK_SUCCESS) {
+        std::cerr << "Failed to submit Vulkan command buffer.\n";
+        vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+        vkDestroyCommandPool(device, commandPool, nullptr);
+        vkDestroyDevice(device, nullptr);
+        destroyDebugUtilsMessenger(instance, debugMessenger);
+        vkDestroyInstance(instance, nullptr);
+        return 1;
+    }
+
+    std::cout << "Submitted Vulkan command buffer and waited for completion.\n";
 
     vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
     std::cout << "Freed Vulkan command buffer.\n";
