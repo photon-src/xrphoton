@@ -144,6 +144,32 @@ struct QueueFamilyIndices
     }
 };
 
+struct RayTracingFunctions
+{
+    PFN_vkGetBufferDeviceAddressKHR getBufferDeviceAddress = nullptr;
+    PFN_vkCreateAccelerationStructureKHR createAccelerationStructure = nullptr;
+    PFN_vkDestroyAccelerationStructureKHR destroyAccelerationStructure = nullptr;
+    PFN_vkGetAccelerationStructureBuildSizesKHR getAccelerationStructureBuildSizes = nullptr;
+    PFN_vkGetAccelerationStructureDeviceAddressKHR getAccelerationStructureDeviceAddress = nullptr;
+    PFN_vkCmdBuildAccelerationStructuresKHR cmdBuildAccelerationStructures = nullptr;
+    PFN_vkCreateRayTracingPipelinesKHR createRayTracingPipelines = nullptr;
+    PFN_vkGetRayTracingShaderGroupHandlesKHR getRayTracingShaderGroupHandles = nullptr;
+    PFN_vkCmdTraceRaysKHR cmdTraceRays = nullptr;
+
+    bool isComplete() const
+    {
+        return getBufferDeviceAddress != nullptr
+            && createAccelerationStructure != nullptr
+            && destroyAccelerationStructure != nullptr
+            && getAccelerationStructureBuildSizes != nullptr
+            && getAccelerationStructureDeviceAddress != nullptr
+            && cmdBuildAccelerationStructures != nullptr
+            && createRayTracingPipelines != nullptr
+            && getRayTracingShaderGroupHandles != nullptr
+            && cmdTraceRays != nullptr;
+    }
+};
+
 QueueFamilyIndices findQueueFamilies(VkPhysicalDevice physicalDevice)
 {
     uint32_t queueFamilyCount = 0;
@@ -367,6 +393,30 @@ VkResult submitCommandBufferAndWait(VkQueue queue, VkCommandBuffer commandBuffer
 
     return vkQueueWaitIdle(queue);
 }
+
+bool loadRayTracingFunctions(VkDevice device, RayTracingFunctions* functions)
+{
+    functions->getBufferDeviceAddress = reinterpret_cast<PFN_vkGetBufferDeviceAddressKHR>(
+        vkGetDeviceProcAddr(device, "vkGetBufferDeviceAddressKHR"));
+    functions->createAccelerationStructure = reinterpret_cast<PFN_vkCreateAccelerationStructureKHR>(
+        vkGetDeviceProcAddr(device, "vkCreateAccelerationStructureKHR"));
+    functions->destroyAccelerationStructure = reinterpret_cast<PFN_vkDestroyAccelerationStructureKHR>(
+        vkGetDeviceProcAddr(device, "vkDestroyAccelerationStructureKHR"));
+    functions->getAccelerationStructureBuildSizes = reinterpret_cast<PFN_vkGetAccelerationStructureBuildSizesKHR>(
+        vkGetDeviceProcAddr(device, "vkGetAccelerationStructureBuildSizesKHR"));
+    functions->getAccelerationStructureDeviceAddress = reinterpret_cast<PFN_vkGetAccelerationStructureDeviceAddressKHR>(
+        vkGetDeviceProcAddr(device, "vkGetAccelerationStructureDeviceAddressKHR"));
+    functions->cmdBuildAccelerationStructures = reinterpret_cast<PFN_vkCmdBuildAccelerationStructuresKHR>(
+        vkGetDeviceProcAddr(device, "vkCmdBuildAccelerationStructuresKHR"));
+    functions->createRayTracingPipelines = reinterpret_cast<PFN_vkCreateRayTracingPipelinesKHR>(
+        vkGetDeviceProcAddr(device, "vkCreateRayTracingPipelinesKHR"));
+    functions->getRayTracingShaderGroupHandles = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(
+        vkGetDeviceProcAddr(device, "vkGetRayTracingShaderGroupHandlesKHR"));
+    functions->cmdTraceRays = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(
+        vkGetDeviceProcAddr(device, "vkCmdTraceRaysKHR"));
+
+    return functions->isComplete();
+}
 }
 
 int main()
@@ -476,6 +526,18 @@ int main()
     }
 
     std::cout << "Created Vulkan logical device with hardware ray tracing prerequisites.\n";
+
+    RayTracingFunctions rayTracingFunctions{};
+
+    if (!loadRayTracingFunctions(device, &rayTracingFunctions)) {
+        std::cerr << "Failed to load required Vulkan ray tracing function pointers.\n";
+        vkDestroyDevice(device, nullptr);
+        destroyDebugUtilsMessenger(instance, debugMessenger);
+        vkDestroyInstance(instance, nullptr);
+        return 1;
+    }
+
+    std::cout << "Loaded Vulkan ray tracing function pointers.\n";
 
     VkQueue graphicsQueue = VK_NULL_HANDLE;
     vkGetDeviceQueue(device, queueFamilies.graphicsFamily, 0, &graphicsQueue);
