@@ -136,12 +136,12 @@ void destroyDebugUtilsMessenger(VkInstance instance, VkDebugUtilsMessengerEXT de
 
 struct QueueFamilyIndices
 {
-    uint32_t graphicsFamily = 0;
-    bool hasGraphicsFamily = false;
+    uint32_t traceFamily = 0;
+    bool hasTraceFamily = false;
 
     bool isComplete() const
     {
-        return hasGraphicsFamily;
+        return hasTraceFamily;
     }
 };
 
@@ -182,9 +182,9 @@ QueueFamilyIndices findQueueFamilies(VkPhysicalDevice physicalDevice)
     QueueFamilyIndices indices{};
 
     for (uint32_t index = 0; index < queueFamilyCount; ++index) {
-        if ((queueFamilies[index].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0) {
-            indices.graphicsFamily = index;
-            indices.hasGraphicsFamily = true;
+        if ((queueFamilies[index].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0) {
+            indices.traceFamily = index;
+            indices.hasTraceFamily = true;
             break;
         }
     }
@@ -313,7 +313,7 @@ VkResult createLogicalDevice(
 
     VkDeviceQueueCreateInfo queueCreateInfo{};
     queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queueCreateInfo.queueFamilyIndex = queueFamilies.graphicsFamily;
+    queueCreateInfo.queueFamilyIndex = queueFamilies.traceFamily;
     queueCreateInfo.queueCount = 1;
     queueCreateInfo.pQueuePriorities = &queuePriority;
 
@@ -354,7 +354,7 @@ VkResult createCommandPool(
     VkCommandPoolCreateInfo commandPoolCreateInfo{};
     commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     commandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    commandPoolCreateInfo.queueFamilyIndex = queueFamilies.graphicsFamily;
+    commandPoolCreateInfo.queueFamilyIndex = queueFamilies.traceFamily;
 
     return vkCreateCommandPool(device, &commandPoolCreateInfo, nullptr, commandPool);
 }
@@ -534,8 +534,8 @@ int main()
     std::cout << "Physical device Vulkan API version: ";
     printVulkanVersion(physicalDeviceProperties.apiVersion);
     std::cout << '\n';
-    std::cout << "Using graphics queue family: "
-              << queueFamilies.graphicsFamily << '\n';
+    std::cout << "Using trace queue family: "
+              << queueFamilies.traceFamily << '\n';
 
     VkDevice device = VK_NULL_HANDLE;
     const VkResult deviceResult = createLogicalDevice(physicalDevice, queueFamilies, &device);
@@ -561,9 +561,9 @@ int main()
 
     std::cout << "Loaded Vulkan ray tracing function pointers.\n";
 
-    VkQueue graphicsQueue = VK_NULL_HANDLE;
-    vkGetDeviceQueue(device, queueFamilies.graphicsFamily, 0, &graphicsQueue);
-    std::cout << "Retrieved Vulkan graphics queue.\n";
+    VkQueue traceQueue = VK_NULL_HANDLE;
+    vkGetDeviceQueue(device, queueFamilies.traceFamily, 0, &traceQueue);
+    std::cout << "Retrieved Vulkan trace queue.\n";
 
     VkCommandPool commandPool = VK_NULL_HANDLE;
     const VkResult commandPoolResult = createCommandPool(device, queueFamilies, &commandPool);
@@ -606,7 +606,7 @@ int main()
 
     std::cout << "Recorded empty Vulkan command buffer.\n";
 
-    const VkResult submitCommandBufferResult = submitCommandBufferAndWait(graphicsQueue, commandBuffer);
+    const VkResult submitCommandBufferResult = submitCommandBufferAndWait(traceQueue, commandBuffer);
 
     if (submitCommandBufferResult != VK_SUCCESS) {
         std::cerr << "Failed to submit Vulkan command buffer.\n";
