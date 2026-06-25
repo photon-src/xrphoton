@@ -1,5 +1,7 @@
+#include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <iterator>
 #include <vector>
 #include <vulkan/vulkan.h>
 
@@ -14,12 +16,6 @@ constexpr const char* RequiredDeviceExtensions[] = {
     VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
     VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
 };
-
-uint32_t requiredDeviceExtensionCount()
-{
-    return static_cast<uint32_t>(
-        sizeof(RequiredDeviceExtensions) / sizeof(RequiredDeviceExtensions[0]));
-}
 
 void printVulkanVersion(uint32_t version)
 {
@@ -340,7 +336,7 @@ VkResult createLogicalDevice(
     deviceCreateInfo.pNext = &deviceFeatures;
     deviceCreateInfo.queueCreateInfoCount = 1;
     deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
-    deviceCreateInfo.enabledExtensionCount = requiredDeviceExtensionCount();
+    deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(std::size(RequiredDeviceExtensions));
     deviceCreateInfo.ppEnabledExtensionNames = RequiredDeviceExtensions;
 
     return vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, device);
@@ -491,9 +487,9 @@ int main()
     instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instanceCreateInfo.pNext = &debugMessengerCreateInfo;
     instanceCreateInfo.pApplicationInfo = &applicationInfo;
-    instanceCreateInfo.enabledLayerCount = 1;
+    instanceCreateInfo.enabledLayerCount = static_cast<uint32_t>(std::size(enabledLayers));
     instanceCreateInfo.ppEnabledLayerNames = enabledLayers;
-    instanceCreateInfo.enabledExtensionCount = 1;
+    instanceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(std::size(enabledExtensions));
     instanceCreateInfo.ppEnabledExtensionNames = enabledExtensions;
 
     VkInstance instance = VK_NULL_HANDLE;
