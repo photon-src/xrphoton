@@ -6,6 +6,7 @@
 namespace
 {
 constexpr const char* ValidationLayerName = "VK_LAYER_KHRONOS_validation";
+constexpr uint32_t RequiredApiVersion = VK_API_VERSION_1_3;
 constexpr const char* RequiredDeviceExtensions[] = {
     VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
     VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
@@ -229,6 +230,14 @@ bool areRequiredDeviceExtensionsAvailable(VkPhysicalDevice physicalDevice)
     return true;
 }
 
+bool hasRequiredApiVersion(VkPhysicalDevice physicalDevice)
+{
+    VkPhysicalDeviceProperties properties{};
+    vkGetPhysicalDeviceProperties(physicalDevice, &properties);
+
+    return properties.apiVersion >= RequiredApiVersion;
+}
+
 bool areRequiredRayTracingFeaturesAvailable(VkPhysicalDevice physicalDevice)
 {
     VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddressFeatures{};
@@ -257,6 +266,7 @@ bool isPhysicalDeviceSuitable(VkPhysicalDevice physicalDevice)
 {
     const QueueFamilyIndices queueFamilies = findQueueFamilies(physicalDevice);
     return queueFamilies.isComplete()
+        && hasRequiredApiVersion(physicalDevice)
         && areRequiredDeviceExtensionsAvailable(physicalDevice)
         && areRequiredRayTracingFeaturesAvailable(physicalDevice);
 }
@@ -435,6 +445,15 @@ int main()
     printVulkanVersion(instanceVersion);
     std::cout << '\n';
 
+    if (instanceVersion < RequiredApiVersion) {
+        std::cerr << "xrPhoton requires Vulkan 1.3 or newer.\n";
+        return 1;
+    }
+
+    std::cout << "Using Vulkan API version: ";
+    printVulkanVersion(RequiredApiVersion);
+    std::cout << '\n';
+
     if (!isValidationLayerAvailable(ValidationLayerName)) {
         std::cerr << "Required Vulkan validation layer is not available: "
                   << ValidationLayerName << '\n';
@@ -464,7 +483,7 @@ int main()
     applicationInfo.applicationVersion = VK_MAKE_VERSION(0, 1, 0);
     applicationInfo.pEngineName = "xrPhoton";
     applicationInfo.engineVersion = VK_MAKE_VERSION(0, 1, 0);
-    applicationInfo.apiVersion = instanceVersion;
+    applicationInfo.apiVersion = RequiredApiVersion;
 
     VkDebugUtilsMessengerCreateInfoEXT debugMessengerCreateInfo = makeDebugMessengerCreateInfo();
 
@@ -512,6 +531,9 @@ int main()
     const QueueFamilyIndices queueFamilies = findQueueFamilies(physicalDevice);
     std::cout << "Selected Vulkan physical device: "
               << physicalDeviceProperties.deviceName << '\n';
+    std::cout << "Physical device Vulkan API version: ";
+    printVulkanVersion(physicalDeviceProperties.apiVersion);
+    std::cout << '\n';
     std::cout << "Using graphics queue family: "
               << queueFamilies.graphicsFamily << '\n';
 
