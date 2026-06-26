@@ -1,0 +1,5 @@
+# Build outputs
+build/
+
+# Local AI assistant context
+CLAUDE.md
