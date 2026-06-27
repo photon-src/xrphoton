@@ -580,9 +580,24 @@ int main()
 
     std::cout << "Created Vulkan debug messenger.\n";
 
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+    const VkResult surfaceResult = glfwCreateWindowSurface(instance, window, nullptr, &surface);
+
+    if (surfaceResult != VK_SUCCESS) {
+        std::cerr << "Failed to create Vulkan surface.\n";
+        destroyDebugUtilsMessenger(instance, debugMessenger);
+        vkDestroyInstance(instance, nullptr);
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return 1;
+    }
+
+    std::cout << "Created Vulkan surface.\n";
+
     VkPhysicalDevice physicalDevice = pickPhysicalDevice(instance);
 
     if (physicalDevice == VK_NULL_HANDLE) {
+        vkDestroySurfaceKHR(instance, surface, nullptr);
         destroyDebugUtilsMessenger(instance, debugMessenger);
         vkDestroyInstance(instance, nullptr);
         glfwDestroyWindow(window);
@@ -607,6 +622,7 @@ int main()
 
     if (deviceResult != VK_SUCCESS) {
         std::cerr << "Failed to create Vulkan logical device.\n";
+        vkDestroySurfaceKHR(instance, surface, nullptr);
         destroyDebugUtilsMessenger(instance, debugMessenger);
         vkDestroyInstance(instance, nullptr);
         glfwDestroyWindow(window);
@@ -621,6 +637,7 @@ int main()
     if (!loadRayTracingFunctions(device, &rayTracingFunctions)) {
         std::cerr << "Failed to load required Vulkan ray tracing function pointers.\n";
         vkDestroyDevice(device, nullptr);
+        vkDestroySurfaceKHR(instance, surface, nullptr);
         destroyDebugUtilsMessenger(instance, debugMessenger);
         vkDestroyInstance(instance, nullptr);
         glfwDestroyWindow(window);
@@ -640,6 +657,7 @@ int main()
     if (commandPoolResult != VK_SUCCESS) {
         std::cerr << "Failed to create Vulkan command pool.\n";
         vkDestroyDevice(device, nullptr);
+        vkDestroySurfaceKHR(instance, surface, nullptr);
         destroyDebugUtilsMessenger(instance, debugMessenger);
         vkDestroyInstance(instance, nullptr);
         glfwDestroyWindow(window);
@@ -656,6 +674,7 @@ int main()
         std::cerr << "Failed to allocate Vulkan command buffer.\n";
         vkDestroyCommandPool(device, commandPool, nullptr);
         vkDestroyDevice(device, nullptr);
+        vkDestroySurfaceKHR(instance, surface, nullptr);
         destroyDebugUtilsMessenger(instance, debugMessenger);
         vkDestroyInstance(instance, nullptr);
         glfwDestroyWindow(window);
@@ -672,6 +691,7 @@ int main()
         vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
         vkDestroyCommandPool(device, commandPool, nullptr);
         vkDestroyDevice(device, nullptr);
+        vkDestroySurfaceKHR(instance, surface, nullptr);
         destroyDebugUtilsMessenger(instance, debugMessenger);
         vkDestroyInstance(instance, nullptr);
         glfwDestroyWindow(window);
@@ -688,6 +708,7 @@ int main()
         vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
         vkDestroyCommandPool(device, commandPool, nullptr);
         vkDestroyDevice(device, nullptr);
+        vkDestroySurfaceKHR(instance, surface, nullptr);
         destroyDebugUtilsMessenger(instance, debugMessenger);
         vkDestroyInstance(instance, nullptr);
         glfwDestroyWindow(window);
@@ -705,6 +726,9 @@ int main()
 
     vkDestroyDevice(device, nullptr);
     std::cout << "Destroyed Vulkan logical device.\n";
+
+    vkDestroySurfaceKHR(instance, surface, nullptr);
+    std::cout << "Destroyed Vulkan surface.\n";
 
     destroyDebugUtilsMessenger(instance, debugMessenger);
     std::cout << "Destroyed Vulkan debug messenger.\n";
