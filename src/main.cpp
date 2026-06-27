@@ -763,6 +763,12 @@ int main()
 
     std::cout << "Submitted Vulkan command buffer and waited for completion.\n";
 
+    std::cout << "Entering GLFW event loop.\n";
+    while (!glfwWindowShouldClose(window)) {
+        glfwPollEvents();
+    }
+    std::cout << "Exited GLFW event loop.\n";
+
     vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
     std::cout << "Freed Vulkan command buffer.\n";
 
