@@ -140,10 +140,12 @@ struct QueueFamilyIndices
 {
     uint32_t traceFamily = 0;
     bool hasTraceFamily = false;
+    uint32_t presentFamily = 0;
+    bool hasPresentFamily = false;
 
     bool isComplete() const
     {
-        return hasTraceFamily;
+        return hasTraceFamily && hasPresentFamily;
     }
 };
 
@@ -173,7 +175,7 @@ struct RayTracingFunctions
     }
 };
 
-QueueFamilyIndices findQueueFamilies(VkPhysicalDevice physicalDevice)
+QueueFamilyIndices findQueueFamilies(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
 {
     uint32_t queueFamilyCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, nullptr);
@@ -184,9 +186,26 @@ QueueFamilyIndices findQueueFamilies(VkPhysicalDevice physicalDevice)
     QueueFamilyIndices indices{};
 
     for (uint32_t index = 0; index < queueFamilyCount; ++index) {
-        if ((queueFamilies[index].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0) {
+        if (!indices.hasTraceFamily && (queueFamilies[index].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0) {
             indices.traceFamily = index;
             indices.hasTraceFamily = true;
+        }
+
+        VkBool32 presentSupported = VK_FALSE;
+        const VkResult presentSupportResult = vkGetPhysicalDeviceSurfaceSupportKHR(
+            physicalDevice,
+            index,
+            surface,
+            &presentSupported);
+
+        if (!indices.hasPresentFamily
+            && presentSupportResult == VK_SUCCESS
+            && presentSupported == VK_TRUE) {
+            indices.presentFamily = index;
+            indices.hasPresentFamily = true;
+        }
+
+        if (indices.isComplete()) {
             break;
         }
     }
@@ -264,16 +283,16 @@ bool areRequiredRayTracingFeaturesAvailable(VkPhysicalDevice physicalDevice)
         && rayTracingPipelineFeatures.rayTracingPipeline == VK_TRUE;
 }
 
-bool isPhysicalDeviceSuitable(VkPhysicalDevice physicalDevice)
+bool isPhysicalDeviceSuitable(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
 {
-    const QueueFamilyIndices queueFamilies = findQueueFamilies(physicalDevice);
+    const QueueFamilyIndices queueFamilies = findQueueFamilies(physicalDevice, surface);
     return queueFamilies.isComplete()
         && hasRequiredApiVersion(physicalDevice)
         && areRequiredDeviceExtensionsAvailable(physicalDevice)
         && areRequiredRayTracingFeaturesAvailable(physicalDevice);
 }
 
-VkPhysicalDevice pickPhysicalDevice(VkInstance instance)
+VkPhysicalDevice pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
 {
     uint32_t physicalDeviceCount = 0;
     VkResult result = vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, nullptr);
@@ -297,7 +316,7 @@ VkPhysicalDevice pickPhysicalDevice(VkInstance instance)
     }
 
     for (VkPhysicalDevice physicalDevice : physicalDevices) {
-        if (isPhysicalDeviceSuitable(physicalDevice)) {
+        if (isPhysicalDeviceSuitable(physicalDevice, surface)) {
             return physicalDevice;
         }
     }
@@ -313,11 +332,31 @@ VkResult createLogicalDevice(
 {
     const float queuePriority = 1.0f;
 
-    VkDeviceQueueCreateInfo queueCreateInfo{};
-    queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queueCreateInfo.queueFamilyIndex = queueFamilies.traceFamily;
-    queueCreateInfo.queueCount = 1;
-    queueCreateInfo.pQueuePriorities = &queuePriority;
+    std::vector<uint32_t> uniqueQueueFamilies;
+    const auto addUniqueQueueFamily = [&uniqueQueueFamilies](uint32_t queueFamily) {
+        for (uint32_t existingQueueFamily : uniqueQueueFamilies) {
+            if (existingQueueFamily == queueFamily) {
+                return;
+            }
+        }
+
+        uniqueQueueFamilies.push_back(queueFamily);
+    };
+
+    addUniqueQueueFamily(queueFamilies.traceFamily);
+    addUniqueQueueFamily(queueFamilies.presentFamily);
+
+    std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+    queueCreateInfos.reserve(uniqueQueueFamilies.size());
+
+    for (uint32_t queueFamily : uniqueQueueFamilies) {
+        VkDeviceQueueCreateInfo queueCreateInfo{};
+        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfo.queueFamilyIndex = queueFamily;
+        queueCreateInfo.queueCount = 1;
+        queueCreateInfo.pQueuePriorities = &queuePriority;
+        queueCreateInfos.push_back(queueCreateInfo);
+    }
 
     VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddressFeatures{};
     bufferDeviceAddressFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
@@ -340,8 +379,8 @@ VkResult createLogicalDevice(
     VkDeviceCreateInfo deviceCreateInfo{};
     deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     deviceCreateInfo.pNext = &deviceFeatures;
-    deviceCreateInfo.queueCreateInfoCount = 1;
-    deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
+    deviceCreateInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
+    deviceCreateInfo.pQueueCreateInfos = queueCreateInfos.data();
     deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(std::size(RequiredDeviceExtensions));
     deviceCreateInfo.ppEnabledExtensionNames = RequiredDeviceExtensions;
 
@@ -594,7 +633,7 @@ int main()
 
     std::cout << "Created Vulkan surface.\n";
 
-    VkPhysicalDevice physicalDevice = pickPhysicalDevice(instance);
+    VkPhysicalDevice physicalDevice = pickPhysicalDevice(instance, surface);
 
     if (physicalDevice == VK_NULL_HANDLE) {
         vkDestroySurfaceKHR(instance, surface, nullptr);
@@ -608,7 +647,7 @@ int main()
     VkPhysicalDeviceProperties physicalDeviceProperties{};
     vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProperties);
 
-    const QueueFamilyIndices queueFamilies = findQueueFamilies(physicalDevice);
+    const QueueFamilyIndices queueFamilies = findQueueFamilies(physicalDevice, surface);
     std::cout << "Selected Vulkan physical device: "
               << physicalDeviceProperties.deviceName << '\n';
     std::cout << "Physical device Vulkan API version: ";
@@ -616,6 +655,8 @@ int main()
     std::cout << '\n';
     std::cout << "Using trace queue family: "
               << queueFamilies.traceFamily << '\n';
+    std::cout << "Using present queue family: "
+              << queueFamilies.presentFamily << '\n';
 
     VkDevice device = VK_NULL_HANDLE;
     const VkResult deviceResult = createLogicalDevice(physicalDevice, queueFamilies, &device);
@@ -650,6 +691,10 @@ int main()
     VkQueue traceQueue = VK_NULL_HANDLE;
     vkGetDeviceQueue(device, queueFamilies.traceFamily, 0, &traceQueue);
     std::cout << "Retrieved Vulkan trace queue.\n";
+
+    VkQueue presentQueue = VK_NULL_HANDLE;
+    vkGetDeviceQueue(device, queueFamilies.presentFamily, 0, &presentQueue);
+    std::cout << "Retrieved Vulkan present queue.\n";
 
     VkCommandPool commandPool = VK_NULL_HANDLE;
     const VkResult commandPoolResult = createCommandPool(device, queueFamilies, &commandPool);
