@@ -864,7 +864,7 @@ VkResult createFrameSyncObjects(
     return VK_SUCCESS;
 }
 
-VkResult recordPresentableSwapchainImageCommandBuffer(
+VkResult recordClearSwapchainImageCommandBuffer(
     VkCommandBuffer commandBuffer,
     VkImage swapchainImage)
 {
@@ -878,22 +878,65 @@ VkResult recordPresentableSwapchainImageCommandBuffer(
         return result;
     }
 
-    VkImageMemoryBarrier presentBarrier{};
-    presentBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    presentBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    presentBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    presentBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    presentBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    presentBarrier.image = swapchainImage;
-    presentBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    presentBarrier.subresourceRange.baseMipLevel = 0;
-    presentBarrier.subresourceRange.levelCount = 1;
-    presentBarrier.subresourceRange.baseArrayLayer = 0;
-    presentBarrier.subresourceRange.layerCount = 1;
+    VkImageSubresourceRange colorRange{};
+    colorRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    colorRange.baseMipLevel = 0;
+    colorRange.levelCount = 1;
+    colorRange.baseArrayLayer = 0;
+    colorRange.layerCount = 1;
+
+    VkImageMemoryBarrier transferBarrier{};
+    transferBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    transferBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    transferBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    transferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transferBarrier.image = swapchainImage;
+    transferBarrier.subresourceRange = colorRange;
+    transferBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
     vkCmdPipelineBarrier(
         commandBuffer,
         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0,
+        0,
+        nullptr,
+        0,
+        nullptr,
+        1,
+        &transferBarrier);
+
+    VkClearColorValue clearColor = {
+        {
+            0.02f,
+            0.16f,
+            0.28f,
+            1.0f,
+        },
+    };
+
+    vkCmdClearColorImage(
+        commandBuffer,
+        swapchainImage,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        &clearColor,
+        1,
+        &colorRange);
+
+    VkImageMemoryBarrier presentBarrier{};
+    presentBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    presentBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    presentBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    presentBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    presentBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    presentBarrier.image = swapchainImage;
+    presentBarrier.subresourceRange = colorRange;
+    presentBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+    vkCmdPipelineBarrier(
+        commandBuffer,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
         0,
         0,
@@ -953,7 +996,7 @@ VkResult drawFrame(
         return result;
     }
 
-    result = recordPresentableSwapchainImageCommandBuffer(
+    result = recordClearSwapchainImageCommandBuffer(
         commandBuffer,
         swapchainImages[imageIndex]);
 
