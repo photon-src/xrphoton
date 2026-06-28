@@ -158,7 +158,7 @@ struct VulkanContext
     VkCommandPool commandPool = VK_NULL_HANDLE;
     VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
     VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
-    VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;
+    std::vector<VkSemaphore> renderFinishedSemaphores;
     VkFence inFlightFence = VK_NULL_HANDLE;
 
     VulkanContext() = default;
@@ -176,9 +176,16 @@ struct VulkanContext
             std::cout << "Destroyed Vulkan in-flight fence.\n";
         }
 
-        if (renderFinishedSemaphore != VK_NULL_HANDLE && device != VK_NULL_HANDLE) {
-            vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
-            std::cout << "Destroyed Vulkan render-finished semaphore.\n";
+        if (device != VK_NULL_HANDLE) {
+            for (VkSemaphore semaphore : renderFinishedSemaphores) {
+                if (semaphore != VK_NULL_HANDLE) {
+                    vkDestroySemaphore(device, semaphore, nullptr);
+                }
+            }
+
+            if (!renderFinishedSemaphores.empty()) {
+                std::cout << "Destroyed Vulkan render-finished semaphores.\n";
+            }
         }
 
         if (imageAvailableSemaphore != VK_NULL_HANDLE && device != VK_NULL_HANDLE) {
@@ -794,6 +801,44 @@ VkResult createSwapchainImageViews(
     return VK_SUCCESS;
 }
 
+void destroyRenderFinishedSemaphores(VkDevice device, std::vector<VkSemaphore>* semaphores)
+{
+    for (VkSemaphore semaphore : *semaphores) {
+        if (semaphore != VK_NULL_HANDLE) {
+            vkDestroySemaphore(device, semaphore, nullptr);
+        }
+    }
+
+    semaphores->clear();
+}
+
+VkResult createRenderFinishedSemaphores(
+    VkDevice device,
+    size_t semaphoreCount,
+    std::vector<VkSemaphore>* semaphores)
+{
+    VkSemaphoreCreateInfo semaphoreCreateInfo{};
+    semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    semaphores->clear();
+    semaphores->resize(semaphoreCount, VK_NULL_HANDLE);
+
+    for (size_t semaphoreIndex = 0; semaphoreIndex < semaphoreCount; ++semaphoreIndex) {
+        const VkResult result = vkCreateSemaphore(
+            device,
+            &semaphoreCreateInfo,
+            nullptr,
+            &(*semaphores)[semaphoreIndex]);
+
+        if (result != VK_SUCCESS) {
+            destroyRenderFinishedSemaphores(device, semaphores);
+            return result;
+        }
+    }
+
+    return VK_SUCCESS;
+}
+
 void destroySwapchainResources(VkDevice device, VulkanContext* ctx)
 {
     for (VkImageView imageView : ctx->swapchainImageViews) {
@@ -844,6 +889,7 @@ VkResult recreateSwapchain(
         return result;
     }
 
+    destroyRenderFinishedSemaphores(ctx->device, &ctx->renderFinishedSemaphores);
     destroySwapchainResources(ctx->device, ctx);
 
     result = createSwapchain(
@@ -866,6 +912,16 @@ VkResult recreateSwapchain(
         ctx->swapchainImages,
         ctx->swapchainImageFormat,
         &ctx->swapchainImageViews);
+
+    if (result != VK_SUCCESS) {
+        destroySwapchainResources(ctx->device, ctx);
+        return result;
+    }
+
+    result = createRenderFinishedSemaphores(
+        ctx->device,
+        ctx->swapchainImages.size(),
+        &ctx->renderFinishedSemaphores);
 
     if (result != VK_SUCCESS) {
         destroySwapchainResources(ctx->device, ctx);
@@ -909,8 +965,9 @@ VkResult allocateCommandBuffer(
 
 VkResult createFrameSyncObjects(
     VkDevice device,
+    size_t swapchainImageCount,
     VkSemaphore* imageAvailableSemaphore,
-    VkSemaphore* renderFinishedSemaphore,
+    std::vector<VkSemaphore>* renderFinishedSemaphores,
     VkFence* inFlightFence)
 {
     VkSemaphoreCreateInfo semaphoreCreateInfo{};
@@ -926,11 +983,10 @@ VkResult createFrameSyncObjects(
         return result;
     }
 
-    result = vkCreateSemaphore(
+    result = createRenderFinishedSemaphores(
         device,
-        &semaphoreCreateInfo,
-        nullptr,
-        renderFinishedSemaphore);
+        swapchainImageCount,
+        renderFinishedSemaphores);
 
     if (result != VK_SUCCESS) {
         vkDestroySemaphore(device, *imageAvailableSemaphore, nullptr);
@@ -945,9 +1001,8 @@ VkResult createFrameSyncObjects(
     result = vkCreateFence(device, &fenceCreateInfo, nullptr, inFlightFence);
 
     if (result != VK_SUCCESS) {
-        vkDestroySemaphore(device, *renderFinishedSemaphore, nullptr);
+        destroyRenderFinishedSemaphores(device, renderFinishedSemaphores);
         vkDestroySemaphore(device, *imageAvailableSemaphore, nullptr);
-        *renderFinishedSemaphore = VK_NULL_HANDLE;
         *imageAvailableSemaphore = VK_NULL_HANDLE;
         return result;
     }
@@ -1048,7 +1103,7 @@ VkResult drawFrame(
     VkQueue traceQueue,
     VkQueue presentQueue,
     VkSemaphore imageAvailableSemaphore,
-    VkSemaphore renderFinishedSemaphore,
+    const std::vector<VkSemaphore>& renderFinishedSemaphores,
     VkFence inFlightFence)
 {
     VkResult result = vkWaitForFences(
@@ -1080,6 +1135,13 @@ VkResult drawFrame(
     }
 
     const VkResult acquireResult = result;
+
+    if (imageIndex >= swapchainImages.size()
+        || imageIndex >= renderFinishedSemaphores.size()) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+
+    const VkSemaphore renderFinishedSemaphore = renderFinishedSemaphores[imageIndex];
 
     result = vkResetCommandBuffer(commandBuffer, 0);
 
@@ -1433,8 +1495,9 @@ int main()
 
     const VkResult syncObjectsResult = createFrameSyncObjects(
         ctx.device,
+        ctx.swapchainImages.size(),
         &ctx.imageAvailableSemaphore,
-        &ctx.renderFinishedSemaphore,
+        &ctx.renderFinishedSemaphores,
         &ctx.inFlightFence);
 
     if (syncObjectsResult != VK_SUCCESS) {
@@ -1457,7 +1520,7 @@ int main()
             traceQueue,
             presentQueue,
             ctx.imageAvailableSemaphore,
-            ctx.renderFinishedSemaphore,
+            ctx.renderFinishedSemaphores,
             ctx.inFlightFence);
 
         if (frameResult == VK_ERROR_OUT_OF_DATE_KHR
