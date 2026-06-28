@@ -136,6 +136,67 @@ void destroyDebugUtilsMessenger(VkInstance instance, VkDebugUtilsMessengerEXT de
     }
 }
 
+struct VulkanContext
+{
+    bool glfwInitialized = false;
+    GLFWwindow* window = nullptr;
+    VkInstance instance = VK_NULL_HANDLE;
+    VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+    VkDevice device = VK_NULL_HANDLE;
+    VkCommandPool commandPool = VK_NULL_HANDLE;
+    VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+
+    VulkanContext() = default;
+    VulkanContext(const VulkanContext&) = delete;
+    VulkanContext& operator=(const VulkanContext&) = delete;
+
+    ~VulkanContext()
+    {
+        if (commandBuffer != VK_NULL_HANDLE
+            && device != VK_NULL_HANDLE
+            && commandPool != VK_NULL_HANDLE) {
+            vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+            std::cout << "Freed Vulkan command buffer.\n";
+        }
+
+        if (commandPool != VK_NULL_HANDLE && device != VK_NULL_HANDLE) {
+            vkDestroyCommandPool(device, commandPool, nullptr);
+            std::cout << "Destroyed Vulkan command pool.\n";
+        }
+
+        if (device != VK_NULL_HANDLE) {
+            vkDestroyDevice(device, nullptr);
+            std::cout << "Destroyed Vulkan logical device.\n";
+        }
+
+        if (surface != VK_NULL_HANDLE && instance != VK_NULL_HANDLE) {
+            vkDestroySurfaceKHR(instance, surface, nullptr);
+            std::cout << "Destroyed Vulkan surface.\n";
+        }
+
+        if (debugMessenger != VK_NULL_HANDLE && instance != VK_NULL_HANDLE) {
+            destroyDebugUtilsMessenger(instance, debugMessenger);
+            std::cout << "Destroyed Vulkan debug messenger.\n";
+        }
+
+        if (instance != VK_NULL_HANDLE) {
+            vkDestroyInstance(instance, nullptr);
+            std::cout << "Destroyed Vulkan instance.\n";
+        }
+
+        if (window != nullptr) {
+            glfwDestroyWindow(window);
+            std::cout << "Destroyed GLFW window.\n";
+        }
+
+        if (glfwInitialized) {
+            glfwTerminate();
+            std::cout << "Terminated GLFW.\n";
+        }
+    }
+};
+
 struct QueueFamilyIndices
 {
     uint32_t traceFamily = 0;
@@ -474,14 +535,17 @@ int main()
 {
     std::cout << "xrPhoton booting...\n";
 
+    VulkanContext ctx;
+
     if (glfwInit() != GLFW_TRUE) {
         std::cerr << "Failed to initialize GLFW.\n";
         return 1;
     }
 
+    ctx.glfwInitialized = true;
+
     if (glfwVulkanSupported() != GLFW_TRUE) {
         std::cerr << "GLFW reports Vulkan is not supported.\n";
-        glfwTerminate();
         return 1;
     }
 
@@ -489,16 +553,15 @@ int main()
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-    GLFWwindow* window = glfwCreateWindow(
+    ctx.window = glfwCreateWindow(
         WindowWidth,
         WindowHeight,
         WindowTitle,
         nullptr,
         nullptr);
 
-    if (window == nullptr) {
+    if (ctx.window == nullptr) {
         std::cerr << "Failed to create GLFW window.\n";
-        glfwTerminate();
         return 1;
     }
 
@@ -511,8 +574,6 @@ int main()
 
     if (result != VK_SUCCESS) {
         std::cerr << "Failed to enumerate Vulkan instance version.\n";
-        glfwDestroyWindow(window);
-        glfwTerminate();
         return 1;
     }
 
@@ -522,8 +583,6 @@ int main()
 
     if (instanceVersion < RequiredApiVersion) {
         std::cerr << "xrPhoton requires Vulkan 1.3 or newer.\n";
-        glfwDestroyWindow(window);
-        glfwTerminate();
         return 1;
     }
 
@@ -534,8 +593,6 @@ int main()
     if (!isValidationLayerAvailable(ValidationLayerName)) {
         std::cerr << "Required Vulkan validation layer is not available: "
                   << ValidationLayerName << '\n';
-        glfwDestroyWindow(window);
-        glfwTerminate();
         return 1;
     }
 
@@ -546,8 +603,6 @@ int main()
 
     if (glfwExtensions == nullptr || glfwExtensionCount == 0) {
         std::cerr << "Failed to get GLFW required Vulkan instance extensions.\n";
-        glfwDestroyWindow(window);
-        glfwTerminate();
         return 1;
     }
 
@@ -560,8 +615,6 @@ int main()
         if (!isInstanceExtensionAvailable(enabledExtension)) {
             std::cerr << "Required Vulkan instance extension is not available: "
                       << enabledExtension << '\n';
-            glfwDestroyWindow(window);
-            glfwTerminate();
             return 1;
         }
     }
@@ -594,60 +647,50 @@ int main()
     instanceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(enabledExtensions.size());
     instanceCreateInfo.ppEnabledExtensionNames = enabledExtensions.data();
 
-    VkInstance instance = VK_NULL_HANDLE;
-    const VkResult createResult = vkCreateInstance(&instanceCreateInfo, nullptr, &instance);
+    const VkResult createResult = vkCreateInstance(&instanceCreateInfo, nullptr, &ctx.instance);
 
     if (createResult != VK_SUCCESS) {
         std::cerr << "Failed to create Vulkan instance.\n";
-        glfwDestroyWindow(window);
-        glfwTerminate();
         return 1;
     }
 
     std::cout << "Created Vulkan instance.\n";
 
-    VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
-    const VkResult debugMessengerResult = createDebugUtilsMessenger(instance, &debugMessengerCreateInfo, &debugMessenger);
+    const VkResult debugMessengerResult = createDebugUtilsMessenger(
+        ctx.instance,
+        &debugMessengerCreateInfo,
+        &ctx.debugMessenger);
 
     if (debugMessengerResult != VK_SUCCESS) {
         std::cerr << "Failed to create Vulkan debug messenger.\n";
-        vkDestroyInstance(instance, nullptr);
-        glfwDestroyWindow(window);
-        glfwTerminate();
         return 1;
     }
 
     std::cout << "Created Vulkan debug messenger.\n";
 
-    VkSurfaceKHR surface = VK_NULL_HANDLE;
-    const VkResult surfaceResult = glfwCreateWindowSurface(instance, window, nullptr, &surface);
+    const VkResult surfaceResult = glfwCreateWindowSurface(
+        ctx.instance,
+        ctx.window,
+        nullptr,
+        &ctx.surface);
 
     if (surfaceResult != VK_SUCCESS) {
         std::cerr << "Failed to create Vulkan surface.\n";
-        destroyDebugUtilsMessenger(instance, debugMessenger);
-        vkDestroyInstance(instance, nullptr);
-        glfwDestroyWindow(window);
-        glfwTerminate();
         return 1;
     }
 
     std::cout << "Created Vulkan surface.\n";
 
-    VkPhysicalDevice physicalDevice = pickPhysicalDevice(instance, surface);
+    VkPhysicalDevice physicalDevice = pickPhysicalDevice(ctx.instance, ctx.surface);
 
     if (physicalDevice == VK_NULL_HANDLE) {
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        destroyDebugUtilsMessenger(instance, debugMessenger);
-        vkDestroyInstance(instance, nullptr);
-        glfwDestroyWindow(window);
-        glfwTerminate();
         return 1;
     }
 
     VkPhysicalDeviceProperties physicalDeviceProperties{};
     vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProperties);
 
-    const QueueFamilyIndices queueFamilies = findQueueFamilies(physicalDevice, surface);
+    const QueueFamilyIndices queueFamilies = findQueueFamilies(physicalDevice, ctx.surface);
     std::cout << "Selected Vulkan physical device: "
               << physicalDeviceProperties.deviceName << '\n';
     std::cout << "Physical device Vulkan API version: ";
@@ -658,16 +701,10 @@ int main()
     std::cout << "Using present queue family: "
               << queueFamilies.presentFamily << '\n';
 
-    VkDevice device = VK_NULL_HANDLE;
-    const VkResult deviceResult = createLogicalDevice(physicalDevice, queueFamilies, &device);
+    const VkResult deviceResult = createLogicalDevice(physicalDevice, queueFamilies, &ctx.device);
 
     if (deviceResult != VK_SUCCESS) {
         std::cerr << "Failed to create Vulkan logical device.\n";
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        destroyDebugUtilsMessenger(instance, debugMessenger);
-        vkDestroyInstance(instance, nullptr);
-        glfwDestroyWindow(window);
-        glfwTerminate();
         return 1;
     }
 
@@ -675,123 +712,69 @@ int main()
 
     RayTracingFunctions rayTracingFunctions{};
 
-    if (!loadRayTracingFunctions(device, &rayTracingFunctions)) {
+    if (!loadRayTracingFunctions(ctx.device, &rayTracingFunctions)) {
         std::cerr << "Failed to load required Vulkan ray tracing function pointers.\n";
-        vkDestroyDevice(device, nullptr);
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        destroyDebugUtilsMessenger(instance, debugMessenger);
-        vkDestroyInstance(instance, nullptr);
-        glfwDestroyWindow(window);
-        glfwTerminate();
         return 1;
     }
 
     std::cout << "Loaded Vulkan ray tracing function pointers.\n";
 
     VkQueue traceQueue = VK_NULL_HANDLE;
-    vkGetDeviceQueue(device, queueFamilies.traceFamily, 0, &traceQueue);
+    vkGetDeviceQueue(ctx.device, queueFamilies.traceFamily, 0, &traceQueue);
     std::cout << "Retrieved Vulkan trace queue.\n";
 
     VkQueue presentQueue = VK_NULL_HANDLE;
-    vkGetDeviceQueue(device, queueFamilies.presentFamily, 0, &presentQueue);
+    vkGetDeviceQueue(ctx.device, queueFamilies.presentFamily, 0, &presentQueue);
     std::cout << "Retrieved Vulkan present queue.\n";
+    (void)presentQueue;
 
-    VkCommandPool commandPool = VK_NULL_HANDLE;
-    const VkResult commandPoolResult = createCommandPool(device, queueFamilies, &commandPool);
+    const VkResult commandPoolResult = createCommandPool(
+        ctx.device,
+        queueFamilies,
+        &ctx.commandPool);
 
     if (commandPoolResult != VK_SUCCESS) {
         std::cerr << "Failed to create Vulkan command pool.\n";
-        vkDestroyDevice(device, nullptr);
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        destroyDebugUtilsMessenger(instance, debugMessenger);
-        vkDestroyInstance(instance, nullptr);
-        glfwDestroyWindow(window);
-        glfwTerminate();
         return 1;
     }
 
     std::cout << "Created Vulkan command pool.\n";
 
-    VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
-    const VkResult commandBufferResult = allocateCommandBuffer(device, commandPool, &commandBuffer);
+    const VkResult commandBufferResult = allocateCommandBuffer(
+        ctx.device,
+        ctx.commandPool,
+        &ctx.commandBuffer);
 
     if (commandBufferResult != VK_SUCCESS) {
         std::cerr << "Failed to allocate Vulkan command buffer.\n";
-        vkDestroyCommandPool(device, commandPool, nullptr);
-        vkDestroyDevice(device, nullptr);
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        destroyDebugUtilsMessenger(instance, debugMessenger);
-        vkDestroyInstance(instance, nullptr);
-        glfwDestroyWindow(window);
-        glfwTerminate();
         return 1;
     }
 
     std::cout << "Allocated Vulkan command buffer.\n";
 
-    const VkResult recordCommandBufferResult = recordEmptyCommandBuffer(commandBuffer);
+    const VkResult recordCommandBufferResult = recordEmptyCommandBuffer(ctx.commandBuffer);
 
     if (recordCommandBufferResult != VK_SUCCESS) {
         std::cerr << "Failed to record Vulkan command buffer.\n";
-        vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
-        vkDestroyCommandPool(device, commandPool, nullptr);
-        vkDestroyDevice(device, nullptr);
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        destroyDebugUtilsMessenger(instance, debugMessenger);
-        vkDestroyInstance(instance, nullptr);
-        glfwDestroyWindow(window);
-        glfwTerminate();
         return 1;
     }
 
     std::cout << "Recorded empty Vulkan command buffer.\n";
 
-    const VkResult submitCommandBufferResult = submitCommandBufferAndWait(traceQueue, commandBuffer);
+    const VkResult submitCommandBufferResult = submitCommandBufferAndWait(traceQueue, ctx.commandBuffer);
 
     if (submitCommandBufferResult != VK_SUCCESS) {
         std::cerr << "Failed to submit Vulkan command buffer.\n";
-        vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
-        vkDestroyCommandPool(device, commandPool, nullptr);
-        vkDestroyDevice(device, nullptr);
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        destroyDebugUtilsMessenger(instance, debugMessenger);
-        vkDestroyInstance(instance, nullptr);
-        glfwDestroyWindow(window);
-        glfwTerminate();
         return 1;
     }
 
     std::cout << "Submitted Vulkan command buffer and waited for completion.\n";
 
     std::cout << "Entering GLFW event loop.\n";
-    while (!glfwWindowShouldClose(window)) {
+    while (!glfwWindowShouldClose(ctx.window)) {
         glfwPollEvents();
     }
     std::cout << "Exited GLFW event loop.\n";
-
-    vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
-    std::cout << "Freed Vulkan command buffer.\n";
-
-    vkDestroyCommandPool(device, commandPool, nullptr);
-    std::cout << "Destroyed Vulkan command pool.\n";
-
-    vkDestroyDevice(device, nullptr);
-    std::cout << "Destroyed Vulkan logical device.\n";
-
-    vkDestroySurfaceKHR(instance, surface, nullptr);
-    std::cout << "Destroyed Vulkan surface.\n";
-
-    destroyDebugUtilsMessenger(instance, debugMessenger);
-    std::cout << "Destroyed Vulkan debug messenger.\n";
-
-    vkDestroyInstance(instance, nullptr);
-    std::cout << "Destroyed Vulkan instance.\n";
-
-    glfwDestroyWindow(window);
-    std::cout << "Destroyed GLFW window.\n";
-
-    glfwTerminate();
-    std::cout << "Terminated GLFW.\n";
 
     return 0;
 }
