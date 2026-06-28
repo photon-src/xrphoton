@@ -1163,7 +1163,7 @@ VkResult drawFrame(
         imageAvailableSemaphore,
     };
     const VkPipelineStageFlags waitStages[] = {
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
     };
     const VkSemaphore signalSemaphores[] = {
         renderFinishedSemaphore,
