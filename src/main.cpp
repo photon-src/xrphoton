@@ -1,7 +1,9 @@
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <vector>
 
 #define GLFW_INCLUDE_VULKAN
@@ -145,6 +147,11 @@ struct VulkanContext
     VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
+    VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+    std::vector<VkImage> swapchainImages;
+    std::vector<VkImageView> swapchainImageViews;
+    VkFormat swapchainImageFormat = VK_FORMAT_UNDEFINED;
+    VkExtent2D swapchainExtent{};
     VkCommandPool commandPool = VK_NULL_HANDLE;
     VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
 
@@ -164,6 +171,23 @@ struct VulkanContext
         if (commandPool != VK_NULL_HANDLE && device != VK_NULL_HANDLE) {
             vkDestroyCommandPool(device, commandPool, nullptr);
             std::cout << "Destroyed Vulkan command pool.\n";
+        }
+
+        if (device != VK_NULL_HANDLE) {
+            for (VkImageView imageView : swapchainImageViews) {
+                if (imageView != VK_NULL_HANDLE) {
+                    vkDestroyImageView(device, imageView, nullptr);
+                }
+            }
+
+            if (!swapchainImageViews.empty()) {
+                std::cout << "Destroyed Vulkan swapchain image views.\n";
+            }
+        }
+
+        if (swapchain != VK_NULL_HANDLE && device != VK_NULL_HANDLE) {
+            vkDestroySwapchainKHR(device, swapchain, nullptr);
+            std::cout << "Destroyed Vulkan swapchain.\n";
         }
 
         if (device != VK_NULL_HANDLE) {
@@ -535,6 +559,214 @@ VkResult createLogicalDevice(
     return vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, device);
 }
 
+VkSurfaceFormatKHR chooseSwapchainSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& formats)
+{
+    for (const VkSurfaceFormatKHR& format : formats) {
+        if (format.format == VK_FORMAT_B8G8R8A8_SRGB
+            && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+            return format;
+        }
+    }
+
+    return formats[0];
+}
+
+VkPresentModeKHR chooseSwapchainPresentMode(const std::vector<VkPresentModeKHR>& presentModes)
+{
+    for (VkPresentModeKHR presentMode : presentModes) {
+        if (presentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+            return presentMode;
+        }
+    }
+
+    return VK_PRESENT_MODE_FIFO_KHR;
+}
+
+bool chooseSwapchainExtent(
+    const VkSurfaceCapabilitiesKHR& capabilities,
+    GLFWwindow* window,
+    VkExtent2D* extent)
+{
+    if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+        *extent = capabilities.currentExtent;
+        return true;
+    }
+
+    int framebufferWidth = 0;
+    int framebufferHeight = 0;
+    glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+
+    if (framebufferWidth <= 0 || framebufferHeight <= 0) {
+        return false;
+    }
+
+    extent->width = std::clamp(
+        static_cast<uint32_t>(framebufferWidth),
+        capabilities.minImageExtent.width,
+        capabilities.maxImageExtent.width);
+    extent->height = std::clamp(
+        static_cast<uint32_t>(framebufferHeight),
+        capabilities.minImageExtent.height,
+        capabilities.maxImageExtent.height);
+
+    return true;
+}
+
+VkCompositeAlphaFlagBitsKHR chooseSwapchainCompositeAlpha(VkCompositeAlphaFlagsKHR supportedCompositeAlpha)
+{
+    constexpr VkCompositeAlphaFlagBitsKHR PreferredCompositeAlphaModes[] = {
+        VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
+        VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR,
+        VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
+    };
+
+    for (VkCompositeAlphaFlagBitsKHR compositeAlpha : PreferredCompositeAlphaModes) {
+        if ((supportedCompositeAlpha & compositeAlpha) != 0) {
+            return compositeAlpha;
+        }
+    }
+
+    return VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+}
+
+VkResult createSwapchain(
+    VkPhysicalDevice physicalDevice,
+    VkDevice device,
+    VkSurfaceKHR surface,
+    GLFWwindow* window,
+    const QueueFamilyIndices& queueFamilies,
+    VkSwapchainKHR* swapchain,
+    std::vector<VkImage>* swapchainImages,
+    VkFormat* swapchainImageFormat,
+    VkExtent2D* swapchainExtent)
+{
+    const SwapchainSupportDetails support = querySwapchainSupport(physicalDevice, surface);
+
+    if (!support.valid || support.formats.empty() || support.presentModes.empty()) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+
+    if ((support.capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) == 0) {
+        return VK_ERROR_FEATURE_NOT_PRESENT;
+    }
+
+    const VkSurfaceFormatKHR surfaceFormat = chooseSwapchainSurfaceFormat(support.formats);
+    const VkPresentModeKHR presentMode = chooseSwapchainPresentMode(support.presentModes);
+
+    VkExtent2D extent{};
+    if (!chooseSwapchainExtent(support.capabilities, window, &extent)) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+
+    uint32_t imageCount = support.capabilities.minImageCount + 1;
+
+    if (support.capabilities.maxImageCount > 0
+        && imageCount > support.capabilities.maxImageCount) {
+        imageCount = support.capabilities.maxImageCount;
+    }
+
+    VkSwapchainCreateInfoKHR createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    createInfo.surface = surface;
+    createInfo.minImageCount = imageCount;
+    createInfo.imageFormat = surfaceFormat.format;
+    createInfo.imageColorSpace = surfaceFormat.colorSpace;
+    createInfo.imageExtent = extent;
+    createInfo.imageArrayLayers = 1;
+    createInfo.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+
+    const uint32_t queueFamilyIndices[] = {
+        queueFamilies.traceFamily,
+        queueFamilies.presentFamily,
+    };
+
+    if (queueFamilies.traceFamily != queueFamilies.presentFamily) {
+        createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+        createInfo.queueFamilyIndexCount = static_cast<uint32_t>(std::size(queueFamilyIndices));
+        createInfo.pQueueFamilyIndices = queueFamilyIndices;
+    } else {
+        createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    }
+
+    createInfo.preTransform = support.capabilities.currentTransform;
+    createInfo.compositeAlpha = chooseSwapchainCompositeAlpha(support.capabilities.supportedCompositeAlpha);
+    createInfo.presentMode = presentMode;
+    createInfo.clipped = VK_TRUE;
+    createInfo.oldSwapchain = VK_NULL_HANDLE;
+
+    VkResult result = vkCreateSwapchainKHR(device, &createInfo, nullptr, swapchain);
+
+    if (result != VK_SUCCESS) {
+        return result;
+    }
+
+    result = vkGetSwapchainImagesKHR(device, *swapchain, &imageCount, nullptr);
+
+    if (result != VK_SUCCESS) {
+        return result;
+    }
+
+    swapchainImages->resize(imageCount);
+
+    result = vkGetSwapchainImagesKHR(device, *swapchain, &imageCount, swapchainImages->data());
+
+    if (result != VK_SUCCESS) {
+        return result;
+    }
+
+    *swapchainImageFormat = surfaceFormat.format;
+    *swapchainExtent = extent;
+
+    return VK_SUCCESS;
+}
+
+VkResult createSwapchainImageViews(
+    VkDevice device,
+    const std::vector<VkImage>& swapchainImages,
+    VkFormat swapchainImageFormat,
+    std::vector<VkImageView>* swapchainImageViews)
+{
+    swapchainImageViews->clear();
+    swapchainImageViews->resize(swapchainImages.size(), VK_NULL_HANDLE);
+
+    for (size_t imageIndex = 0; imageIndex < swapchainImages.size(); ++imageIndex) {
+        VkImageViewCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        createInfo.image = swapchainImages[imageIndex];
+        createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        createInfo.format = swapchainImageFormat;
+        createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        createInfo.subresourceRange.baseMipLevel = 0;
+        createInfo.subresourceRange.levelCount = 1;
+        createInfo.subresourceRange.baseArrayLayer = 0;
+        createInfo.subresourceRange.layerCount = 1;
+
+        const VkResult result = vkCreateImageView(
+            device,
+            &createInfo,
+            nullptr,
+            &(*swapchainImageViews)[imageIndex]);
+
+        if (result != VK_SUCCESS) {
+            for (VkImageView imageView : *swapchainImageViews) {
+                if (imageView != VK_NULL_HANDLE) {
+                    vkDestroyImageView(device, imageView, nullptr);
+                }
+            }
+
+            swapchainImageViews->clear();
+            return result;
+        }
+    }
+
+    return VK_SUCCESS;
+}
+
 VkResult createCommandPool(
     VkDevice device,
     const QueueFamilyIndices& queueFamilies,
@@ -814,6 +1046,40 @@ int main()
     vkGetDeviceQueue(ctx.device, queueFamilies.presentFamily, 0, &presentQueue);
     std::cout << "Retrieved Vulkan present queue.\n";
     (void)presentQueue;
+
+    const VkResult swapchainResult = createSwapchain(
+        physicalDevice,
+        ctx.device,
+        ctx.surface,
+        ctx.window,
+        queueFamilies,
+        &ctx.swapchain,
+        &ctx.swapchainImages,
+        &ctx.swapchainImageFormat,
+        &ctx.swapchainExtent);
+
+    if (swapchainResult != VK_SUCCESS) {
+        std::cerr << "Failed to create Vulkan swapchain.\n";
+        return 1;
+    }
+
+    std::cout << "Created Vulkan swapchain with "
+              << ctx.swapchainImages.size() << " images ("
+              << ctx.swapchainExtent.width << 'x'
+              << ctx.swapchainExtent.height << ").\n";
+
+    const VkResult swapchainImageViewsResult = createSwapchainImageViews(
+        ctx.device,
+        ctx.swapchainImages,
+        ctx.swapchainImageFormat,
+        &ctx.swapchainImageViews);
+
+    if (swapchainImageViewsResult != VK_SUCCESS) {
+        std::cerr << "Failed to create Vulkan swapchain image views.\n";
+        return 1;
+    }
+
+    std::cout << "Created Vulkan swapchain image views.\n";
 
     const VkResult commandPoolResult = createCommandPool(
         ctx.device,
