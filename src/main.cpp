@@ -909,9 +909,9 @@ VkResult recordClearSwapchainImageCommandBuffer(
 
     VkClearColorValue clearColor = {
         {
+            0.24f,
             0.02f,
-            0.16f,
-            0.28f,
+            0.015f,
             1.0f,
         },
     };
