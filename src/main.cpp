@@ -1091,21 +1091,12 @@ VkResult recordClearSwapchainImageCommandBuffer(
     return vkEndCommandBuffer(commandBuffer);
 }
 
-VkResult drawFrame(
-    VkDevice device,
-    VkSwapchainKHR swapchain,
-    const std::vector<VkImage>& swapchainImages,
-    VkCommandBuffer commandBuffer,
-    VkQueue traceQueue,
-    VkQueue presentQueue,
-    VkSemaphore imageAvailableSemaphore,
-    const std::vector<VkSemaphore>& renderFinishedSemaphores,
-    VkFence inFlightFence)
+VkResult drawFrame(VulkanContext* ctx, VkQueue traceQueue, VkQueue presentQueue)
 {
     VkResult result = vkWaitForFences(
-        device,
+        ctx->device,
         1,
-        &inFlightFence,
+        &ctx->inFlightFence,
         VK_TRUE,
         std::numeric_limits<uint64_t>::max());
 
@@ -1115,10 +1106,10 @@ VkResult drawFrame(
 
     uint32_t imageIndex = 0;
     result = vkAcquireNextImageKHR(
-        device,
-        swapchain,
+        ctx->device,
+        ctx->swapchain,
         std::numeric_limits<uint64_t>::max(),
-        imageAvailableSemaphore,
+        ctx->imageAvailableSemaphore,
         VK_NULL_HANDLE,
         &imageIndex);
 
@@ -1132,35 +1123,35 @@ VkResult drawFrame(
 
     const VkResult acquireResult = result;
 
-    if (imageIndex >= swapchainImages.size()
-        || imageIndex >= renderFinishedSemaphores.size()) {
+    if (imageIndex >= ctx->swapchainImages.size()
+        || imageIndex >= ctx->renderFinishedSemaphores.size()) {
         return VK_ERROR_INITIALIZATION_FAILED;
     }
 
-    const VkSemaphore renderFinishedSemaphore = renderFinishedSemaphores[imageIndex];
+    const VkSemaphore renderFinishedSemaphore = ctx->renderFinishedSemaphores[imageIndex];
 
-    result = vkResetCommandBuffer(commandBuffer, 0);
+    result = vkResetCommandBuffer(ctx->commandBuffer, 0);
 
     if (result != VK_SUCCESS) {
         return result;
     }
 
     result = recordClearSwapchainImageCommandBuffer(
-        commandBuffer,
-        swapchainImages[imageIndex]);
+        ctx->commandBuffer,
+        ctx->swapchainImages[imageIndex]);
 
     if (result != VK_SUCCESS) {
         return result;
     }
 
-    result = vkResetFences(device, 1, &inFlightFence);
+    result = vkResetFences(ctx->device, 1, &ctx->inFlightFence);
 
     if (result != VK_SUCCESS) {
         return result;
     }
 
     const VkSemaphore waitSemaphores[] = {
-        imageAvailableSemaphore,
+        ctx->imageAvailableSemaphore,
     };
     const VkPipelineStageFlags waitStages[] = {
         VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -1175,18 +1166,18 @@ VkResult drawFrame(
     submitInfo.pWaitSemaphores = waitSemaphores;
     submitInfo.pWaitDstStageMask = waitStages;
     submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer;
+    submitInfo.pCommandBuffers = &ctx->commandBuffer;
     submitInfo.signalSemaphoreCount = static_cast<uint32_t>(std::size(signalSemaphores));
     submitInfo.pSignalSemaphores = signalSemaphores;
 
-    result = vkQueueSubmit(traceQueue, 1, &submitInfo, inFlightFence);
+    result = vkQueueSubmit(traceQueue, 1, &submitInfo, ctx->inFlightFence);
 
     if (result != VK_SUCCESS) {
         return result;
     }
 
     const VkSwapchainKHR swapchains[] = {
-        swapchain,
+        ctx->swapchain,
     };
 
     VkPresentInfoKHR presentInfo{};
@@ -1509,15 +1500,9 @@ int main()
         glfwPollEvents();
 
         const VkResult frameResult = drawFrame(
-            ctx.device,
-            ctx.swapchain,
-            ctx.swapchainImages,
-            ctx.commandBuffer,
+            &ctx,
             traceQueue,
-            presentQueue,
-            ctx.imageAvailableSemaphore,
-            ctx.renderFinishedSemaphores,
-            ctx.inFlightFence);
+            presentQueue);
 
         if (frameResult == VK_ERROR_OUT_OF_DATE_KHR
             || frameResult == VK_SUBOPTIMAL_KHR) {
