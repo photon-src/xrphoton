@@ -1247,6 +1247,7 @@ int main()
     std::cout << "Initialized GLFW with Vulkan support.\n";
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
     ctx.window = glfwCreateWindow(
         WindowWidth,
@@ -1496,6 +1497,8 @@ int main()
 
     std::cout << "Entering GLFW event loop.\n";
 
+    bool windowShown = false;
+
     while (!glfwWindowShouldClose(ctx.window)) {
         glfwPollEvents();
 
@@ -1522,6 +1525,11 @@ int main()
         if (frameResult != VK_SUCCESS) {
             std::cerr << "Failed to draw Vulkan frame.\n";
             return 1;
+        }
+
+        if (!windowShown) {
+            glfwShowWindow(ctx.window);
+            windowShown = true;
         }
     }
 
