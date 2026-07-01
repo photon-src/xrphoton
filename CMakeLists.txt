@@ -24,6 +24,8 @@ if(XRPHOTON_ENABLE_VALIDATION)
     target_compile_definitions(xrPhoton PRIVATE XRPHOTON_ENABLE_VALIDATION)
 endif()
 
+target_compile_options(xrPhoton PRIVATE -Wall -Wextra)
+
 target_link_libraries(xrPhoton
     PRIVATE
         Vulkan::Vulkan
