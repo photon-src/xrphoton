@@ -123,12 +123,16 @@ returns `1` on failure (RAII handles the unwind):
 1. **GLFW + Vulkan gate.** `glfwInit`, then `glfwVulkanSupported`. Create a
    `GLFW_NO_API`, initially **hidden** window (`GLFW_VISIBLE` false); it is shown only
    after the first frame presents, so it never flashes blank during bring-up.
-2. **Instance.** Validation-layer and instance-extension availability checks. The
-   instance extensions are GLFW's required surface set plus `VK_EXT_debug_utils`. The
+2. **Instance.** Validation is requested at build time (the
+   `XRPHOTON_ENABLE_VALIDATION` CMake option, default ON) but is best-effort at
+   runtime: if the Khronos layer or `VK_EXT_debug_utils` is missing (machines without
+   the Vulkan SDK), bring-up warns and continues without validation rather than
+   failing. The instance extensions are GLFW's required surface set, plus
+   `VK_EXT_debug_utils` when validation is enabled; with validation on, the
    debug-messenger create info is chained via `pNext` on the instance create info, so
    validation also covers instance creation and destruction.
-3. **Debug messenger.** Standalone `VK_EXT_debug_utils` messenger, filtered to
-   warnings and errors, routing messages to `std::cerr`.
+3. **Debug messenger** (validation builds only). Standalone `VK_EXT_debug_utils`
+   messenger, filtered to warnings and errors, routing messages to `std::cerr`.
 4. **Surface.** `glfwCreateWindowSurface`.
 5. **Physical device.** `pickPhysicalDevice` takes the first GPU passing every
    suitability check (see [Device selection](#device-selection)).

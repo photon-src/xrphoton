@@ -18,6 +18,16 @@ constexpr int WindowWidth = 1920;
 constexpr int WindowHeight = 1080;
 constexpr const char* WindowTitle = "xrPhoton";
 
+// Compile-time request from the XRPHOTON_ENABLE_VALIDATION CMake option. The runtime
+// decision (validationEnabled in main) additionally requires the layer and debug-utils
+// extension to actually be present, so a build with validation on still runs on
+// machines without the Vulkan SDK — just without validation coverage.
+#ifdef XRPHOTON_ENABLE_VALIDATION
+constexpr bool ValidationRequested = true;
+#else
+constexpr bool ValidationRequested = false;
+#endif
+
 void recordImageBarrier(
     VkCommandBuffer commandBuffer,
     VkImage image,
@@ -395,13 +405,22 @@ int main()
     printVulkanVersion(RequiredApiVersion);
     std::cout << '\n';
 
-    if (!isValidationLayerAvailable(ValidationLayerName)) {
-        std::cerr << "Required Vulkan validation layer is not available: "
-                  << ValidationLayerName << '\n';
-        return 1;
+    // Validation is best-effort, not a hard requirement: the layer only exists on
+    // machines with the Vulkan SDK (or the layer package) installed, and the program is
+    // equally correct without it. The debug-utils extension is tied to the same decision
+    // because its only consumer is the validation messenger.
+    const bool validationEnabled = ValidationRequested
+        && isValidationLayerAvailable(ValidationLayerName)
+        && isInstanceExtensionAvailable(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+
+    if (ValidationRequested && !validationEnabled) {
+        std::cerr << "Vulkan validation layer is not available: " << ValidationLayerName
+                  << " — continuing without validation.\n";
     }
 
-    std::cout << "Using Vulkan validation layer: " << ValidationLayerName << '\n';
+    if (validationEnabled) {
+        std::cout << "Using Vulkan validation layer: " << ValidationLayerName << '\n';
+    }
 
     uint32_t glfwExtensionCount = 0;
     const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
@@ -411,12 +430,16 @@ int main()
         return 1;
     }
 
-    // The instance extension set is GLFW's required surface extensions plus debug-utils
-    // (for the validation messenger). Each is verified available before use.
+    // The instance extension set is GLFW's required surface extensions, plus debug-utils
+    // (for the validation messenger) when validation is on. Each is verified available
+    // before use; debug-utils availability was already part of the validation decision.
     std::vector<const char*> enabledExtensions(
         glfwExtensions,
         glfwExtensions + glfwExtensionCount);
-    enabledExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+
+    if (validationEnabled) {
+        enabledExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    }
 
     for (const char* enabledExtension : enabledExtensions) {
         if (!isInstanceExtensionAvailable(enabledExtension)) {
@@ -449,10 +472,12 @@ int main()
     // own creation and destruction, before/after the standalone messenger exists.
     VkInstanceCreateInfo instanceCreateInfo{};
     instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    instanceCreateInfo.pNext = &debugMessengerCreateInfo;
+    instanceCreateInfo.pNext = validationEnabled ? &debugMessengerCreateInfo : nullptr;
     instanceCreateInfo.pApplicationInfo = &applicationInfo;
-    instanceCreateInfo.enabledLayerCount = static_cast<uint32_t>(std::size(enabledLayers));
-    instanceCreateInfo.ppEnabledLayerNames = enabledLayers;
+    instanceCreateInfo.enabledLayerCount = validationEnabled
+        ? static_cast<uint32_t>(std::size(enabledLayers))
+        : 0;
+    instanceCreateInfo.ppEnabledLayerNames = validationEnabled ? enabledLayers : nullptr;
     instanceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(enabledExtensions.size());
     instanceCreateInfo.ppEnabledExtensionNames = enabledExtensions.data();
 
@@ -465,17 +490,21 @@ int main()
 
     std::cout << "Created Vulkan instance.\n";
 
-    const VkResult debugMessengerResult = createDebugUtilsMessenger(
-        ctx.instance,
-        &debugMessengerCreateInfo,
-        &ctx.debugMessenger);
+    // Without validation, ctx.debugMessenger stays null and the destructor's null guard
+    // skips it.
+    if (validationEnabled) {
+        const VkResult debugMessengerResult = createDebugUtilsMessenger(
+            ctx.instance,
+            &debugMessengerCreateInfo,
+            &ctx.debugMessenger);
 
-    if (debugMessengerResult != VK_SUCCESS) {
-        std::cerr << "Failed to create Vulkan debug messenger.\n";
-        return 1;
+        if (debugMessengerResult != VK_SUCCESS) {
+            std::cerr << "Failed to create Vulkan debug messenger.\n";
+            return 1;
+        }
+
+        std::cout << "Created Vulkan debug messenger.\n";
     }
-
-    std::cout << "Created Vulkan debug messenger.\n";
 
     const VkResult surfaceResult = glfwCreateWindowSurface(
         ctx.instance,
