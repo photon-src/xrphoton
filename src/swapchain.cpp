@@ -230,13 +230,20 @@ VkPresentModeKHR chooseSwapchainPresentMode(const std::vector<VkPresentModeKHR>&
 // Resolve the swapchain extent. When the surface dictates a fixed size, currentExtent is
 // that size; the special value 0xFFFFFFFF means "pick your own", in which case we take
 // the window's framebuffer size clamped to the surface's min/max. Returns false if the
-// framebuffer has zero area (e.g. minimized), which the caller treats as "try later".
+// resolved extent has zero area (e.g. minimized), which the caller treats as "try later".
 bool chooseSwapchainExtent(
     const VkSurfaceCapabilitiesKHR& capabilities,
     GLFWwindow* window,
     VkExtent2D* extent)
 {
     if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+        // A fixed extent can still be zero-area (e.g. a minimized window on some
+        // platforms); a zero-extent swapchain is invalid, so report "try later" just
+        // like the zero-framebuffer case below.
+        if (capabilities.currentExtent.width == 0 || capabilities.currentExtent.height == 0) {
+            return false;
+        }
+
         *extent = capabilities.currentExtent;
         return true;
     }
