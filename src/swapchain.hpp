@@ -54,8 +54,10 @@ VkResult createSwapchainResources(
 
 // Rebuild the swapchain after a resize / out-of-date surface: wait until the window has
 // a drawable (non-zero) framebuffer, idle the device, destroy the old resources, then
-// create new ones. Blocking on a minimized window is expected. Returns VK_SUCCESS
-// (leaving *swap empty) if the window is closing while waiting.
+// create new ones. Blocking on a minimized window is expected. If the window is asked to
+// close while waiting, returns VK_SUCCESS with *swap left untouched (the old, possibly
+// out-of-date resources remain valid); the caller is expected to exit its render loop
+// rather than draw with them.
 VkResult recreateSwapchain(
     Swapchain* swap,
     VkPhysicalDevice physicalDevice,
